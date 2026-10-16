@@ -195,7 +195,7 @@ sent to the browser or written to logs.
 ## Tests
 
 ```
-python3 -m unittest tests.test_server tests.test_benchmark tests.test_compare tests.test_backends tests.test_dist tests.test_batch
+python3 -m unittest tests.test_server tests.test_benchmark tests.test_compare tests.test_backends tests.test_dist tests.test_batch tests.test_containerfile
 ```
 
 The tests use fakes of LM Studio, Ollama, vLLM and llama.cpp, built from their API docs, and need no network.
