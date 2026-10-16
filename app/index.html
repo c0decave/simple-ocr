@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>simple-ocr</title>
+<style>
+  :root { color-scheme:dark; --bg:#14171c; --card:#1c2128; --text:#e6e9ee; --muted:#98a2b3; --line:#363c46; --accent:#6c9bff; --accent-text:#0b1220; --bad:#ff7b6b; }
+  :root[data-theme="light"] { color-scheme:light; --bg:#f6f7f9; --card:#fff; --text:#1c2128; --muted:#667085; --line:#d0d5dd; --accent:#2f6fed; --accent-text:#fff; --bad:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:880px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; align-items:center; justify-content:space-between; margin:0 0 16px; }
+  h1 { font-size:1.25rem; margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:32px 16px; text-align:center; color:var(--muted); cursor:pointer; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #drop:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  #preview { display:none; max-width:100%; max-height:280px; margin:16px auto 0; border-radius:6px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; margin-top:16px; }
+  label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
+  select, button { font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  .model { display:flex; flex:1 1 320px; min-width:0; }
+  .model select { flex:1; min-width:0; width:100%; text-overflow:ellipsis; }
+  button { cursor:pointer; }
+  .button { display:inline-block; font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; text-decoration:none; cursor:pointer; }
+  .actions { display:flex; gap:8px; align-items:center; flex:none; }
+  .actions > * { white-space:nowrap; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
+  #status { color:var(--muted); min-height:1.5em; display:flex; gap:8px; align-items:center; overflow-wrap:anywhere; min-width:0; }
+  #status.error { color:var(--bad); }
+  #status.busy { color:var(--text); }
+  #spinner { display:none; flex:none; width:16px; height:16px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  #status.busy #spinner { display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #result.busy { opacity:.5; }
+  h2 { font-size:1rem; margin:0 0 12px; display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  h2 small { font-weight:400; color:var(--muted); font-size:.875rem; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; }
+  td.num, th.num { text-align:right; white-space:nowrap; }
+  tbody tr.selected td { background:color-mix(in srgb, var(--accent) 14%, transparent); }
+  tbody tr.pending td { color:var(--muted); font-style:italic; }
+  tfoot td { border-bottom:0; font-weight:600; }
+  .badge { display:inline-block; padding:0 8px; border-radius:999px; border:1px solid var(--line); font-size:.78rem; white-space:nowrap; }
+  .badge.accent { border-color:var(--accent); color:var(--accent); }
+  .empty { color:var(--muted); margin:0; }
+  @media (max-width:560px) {
+    .opt { display:none; }
+    .badge { white-space:normal; }
+    th, td { padding:8px 6px; }
+  }
+  .hint { margin-top:12px; color:var(--muted); font-size:.875rem; overflow-wrap:anywhere; min-height:1.3em; }
+  #drop.busy { border-color:var(--accent); }
+  #result { width:100%; min-height:200px; resize:vertical; font:14px/1.5 ui-monospace, monospace; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; }
+  #prompt-box { margin-top:12px; }
+  #prompt-box summary { cursor:pointer; color:var(--muted); }
+  #prompt-box summary b { color:var(--text); font-weight:600; }
+  #prompt { width:100%; min-height:90px; margin-top:8px; resize:vertical; font:14px/1.5 ui-monospace, monospace; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; }
+  #prompt-box .row { margin-top:8px; }
+  #version { position:fixed; left:12px; bottom:8px; font-size:.75rem; color:var(--muted); pointer-events:none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>simple-ocr</h1>
+    <span class="actions"><!--BATCH--><a class="button" href="/batch">Batch</a><!--/BATCH--><!--DEBUG--><a class="button" href="/debug">Debug</a><!--/DEBUG--><button id="theme" type="button">Light theme</button></span>
+  </header>
+
+  <div class="card">
+    <div id="drop" tabindex="0" role="button" aria-label="Choose an image">
+      Drop an image here, click to choose a file, or paste with Ctrl+V
+    </div>
+    <input id="file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <img id="preview" alt="Preview of the selected image">
+
+    <div class="row">
+      <label><input type="radio" name="mode" value="ocr" checked> Extract text (OCR)</label>
+      <label><input type="radio" name="mode" value="describe"> Describe image</label>
+      <button id="send" type="button" class="primary" disabled title="Send the current image again">Send</button>
+      <label class="model">Model <select id="model"><option value="">loading…</option></select></label>
+    </div>
+    <div id="model-hint" class="hint"></div>
+    <!--PROMPT--><details id="prompt-box">
+      <summary>Prompt <b id="prompt-state">default</b></summary>
+      <textarea id="prompt" spellcheck="false" aria-label="Prompt sent with the image"></textarea>
+      <div class="row">
+        <button id="prompt-reset" type="button" disabled>Back to the default prompt</button>
+        <span class="hint" style="margin:0">Changing it applies to the next Send. Empty means the default.</span>
+      </div>
+    </details><!--/PROMPT-->
+  </div>
+
+  <div class="card">
+    <div class="row" style="margin-top:0; flex-wrap:nowrap">
+      <div id="status" role="status" aria-live="polite"><span id="spinner"></span><span id="status-text">Waiting for an image.</span></div>
+      <button id="copy" type="button" disabled style="margin-left:auto">Copy</button>
+    </div>
+    <textarea id="result" readonly placeholder="The result appears here."></textarea>
+  </div>
+
+  <div class="card" id="loaded-card">
+    <h2><span>Loaded on <span id="backend-name">the model server</span></span> <small id="loaded-total"></small></h2>
+    <div id="loaded-body"></div>
+  </div>
+</main>
+<footer id="version">simple-ocr v__APP_VERSION__</footer>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const drop = $("drop"), fileInput = $("file"), preview = $("preview");
+const modelSelect = $("model"), statusEl = $("status"), result = $("result"), copyBtn = $("copy");
+let currentFile = null;
+let currentRun = null;   // AbortController of the request in flight
+
+const statusText = $("status-text");
+let ticker = null;
+
+function setStatus(text, isError = false) {
+  statusText.textContent = text;
+  statusEl.classList.toggle("error", isError);
+}
+
+// Shows spinner, label and a running seconds counter until stopBusy() is called.
+function startBusy(label) {
+  stopBusy();
+  const started = performance.now();
+  const tick = () => setStatus(label + " " + ((performance.now() - started) / 1000).toFixed(0) + " s");
+  statusEl.classList.add("busy");
+  result.classList.add("busy");
+  drop.classList.add("busy");
+  tick();
+  ticker = setInterval(tick, 500);
+}
+
+function stopBusy() {
+  clearInterval(ticker);
+  ticker = null;
+  statusEl.classList.remove("busy");
+  result.classList.remove("busy");
+  drop.classList.remove("busy");
+}
+
+function mode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+
+let modelData = { models: [], loaded_now: [] };
+let backendName = "the model server";   // from /api/models
+let loadingAllowed = true;               // false: models that are not loaded are shown but cannot be chosen
+// Prompt editor: only in the page when the server allows custom prompts (CUSTOM_PROMPT)
+const promptBox = $("prompt");
+let defaultPrompts = {};                 // mode -> default prompt, from /api/settings
+
+function customPrompt() {
+  if (!promptBox) return "";
+  const text = promptBox.value.trim();
+  return text && text !== (defaultPrompts[mode()] || "").trim() ? text : "";
+}
+function updatePromptState() {
+  if (!promptBox) return;
+  const custom = customPrompt() !== "";
+  $("prompt-state").textContent = custom ? "custom" : "default";
+  $("prompt-reset").disabled = !custom;
+}
+function showDefaultPrompt() {
+  if (!promptBox) return;
+  promptBox.value = defaultPrompts[mode()] || "";
+  updatePromptState();
+}
+async function loadSettings() {
+  if (!promptBox) return;
+  try {
+    const response = await fetch("/api/settings");
+    const data = await readJson(response);
+    if (!response.ok) throw new Error(data.error || "HTTP " + response.status);
+    defaultPrompts = data.prompts || {};
+    promptBox.maxLength = data.prompt_max_chars || 4000;
+    if (!customPrompt()) showDefaultPrompt();
+  } catch (error) {
+    $("prompt-state").textContent = "default (could not load it: " + error.message + ")";
+  }
+}
+let modelsOk = false;
+
+function formatSize(bytes) {
+  return bytes == null ? "" : (bytes / 1e9).toFixed(1) + " GB";
+}
+
+// The line under the model dropdown: what the selected model needs and what is loaded right now.
+function updateHint() {
+  const hint = $("model-hint");
+  const selected = modelData.models.find((m) => m.id === modelSelect.value);
+  if (!selected) {
+    hint.textContent = "";
+  } else if (selected.loaded === null) {
+    hint.textContent = "This server does not report which models are loaded.";
+  } else if (selected.loaded) {
+    hint.textContent = "Ready: this model is already loaded.";
+  } else if (!loadingAllowed) {
+    hint.textContent = "Not loaded, and this interface does not load models.";
+  } else {
+    const size = selected.size_bytes != null ? " (" + formatSize(selected.size_bytes) + ")" : "";
+    hint.textContent = "Not loaded: " + backendName + " loads it on first use" + size + ", which takes a while.";
+  }
+  renderLoaded(selected);
+}
+
+function cell(row, text, className) {
+  const td = row.insertCell();
+  td.textContent = text;
+  if (className) td.className = className;
+  return td;
+}
+
+// Table of everything loaded on the model server. The selected model is highlighted; if it is not loaded
+// yet it is appended as a pending row so the memory impact of the switch is visible.
+function renderLoaded(selected) {
+  const body = $("loaded-body");
+  const totalEl = $("loaded-total");
+  const loaded = modelData.loaded_now;
+  const pending = selected && selected.loaded === false ? selected : null;
+  body.replaceChildren();
+  const loadedBytes = loaded.reduce((sum, m) => sum + (m.size_bytes || 0), 0);
+  totalEl.textContent = loaded.length
+    ? loaded.length + (loaded.length === 1 ? " model, " : " models, ") + formatSize(loadedBytes)
+    : "";
+  if (!modelsOk || (!loaded.length && !pending)) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = modelsOk ? "Nothing is loaded on " + backendName + " right now." : "The load state is unavailable.";
+    body.append(p);
+    return;
+  }
+  const table = document.createElement("table");
+  const head = table.createTHead().insertRow();
+  [["Model", ""], ["Type", "opt"], ["Params", "opt num"], ["Quant", "opt"], ["Size", "num"], ["Status", ""]].forEach(([label, cls]) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    if (cls) th.className = cls;
+    head.append(th);
+  });
+  const tbody = table.createTBody();
+  const kindLabel = { vision: "Vision", text: "Text", embedding: "Embedding", unknown: "unknown" };
+  const addRow = (m, kind, status, cls) => {
+    const row = tbody.insertRow();
+    if (cls) row.className = cls;
+    cell(row, m.id);
+    cell(row, kindLabel[kind] || "", "opt");
+    cell(row, m.params || "", "opt num");
+    cell(row, m.quantization || "", "opt");
+    cell(row, formatSize(m.size_bytes), "num");
+    const statusCell = cell(row, "");
+    const badge = document.createElement("span");
+    badge.className = "badge" + (cls === "selected" ? " accent" : "");
+    badge.textContent = status;
+    statusCell.append(badge);
+  };
+  for (const m of loaded) {
+    const isSelected = selected && m.id === selected.id;
+    addRow(m, m.kind, isSelected ? "loaded · selected" : "loaded", isSelected ? "selected" : "");
+  }
+  if (pending) addRow(pending, "vision", "selected · not loaded", "pending");
+  const foot = table.createTFoot().insertRow();
+  cell(foot, "Loaded in total");
+  cell(foot, "", "opt");
+  cell(foot, "", "opt");
+  cell(foot, "", "opt");
+  cell(foot, formatSize(loadedBytes), "num");
+  const note = cell(foot, "");
+  if (pending && pending.size_bytes != null) {
+    note.textContent = "+" + formatSize(pending.size_bytes) + " on first use";
+    note.style.fontWeight = "400";
+    note.style.color = "var(--muted)";
+  }
+  body.append(table);
+}
+
+// quiet: used for background refreshes; errors must not overwrite the status line.
+async function loadModels({ quiet = false } = {}) {
+  try {
+    const response = await fetch("/api/models");
+    const data = await readJson(response);
+    const previous = modelSelect.value;   // read after the wait: the user may have picked another model meanwhile
+    if (!response.ok) throw new Error(data.error || "Server answered HTTP " + response.status);
+    modelData = { models: data.models, loaded_now: data.loaded_now || [] };
+    if (data.backend) {
+      backendName = data.backend.name;
+      loadingAllowed = data.backend.loading_allowed !== false;
+      $("backend-name").textContent = backendName;
+    }
+    const usable = (m) => loadingAllowed || m.loaded === true;
+    modelSelect.replaceChildren();
+    for (const m of data.models) {
+      const state = m.loaded ? " · loaded" : usable(m) ? "" : " · not loaded";
+      const label = m.id + (m.size_bytes != null ? " · " + formatSize(m.size_bytes) : "") + state;
+      const option = new Option(label, m.id);
+      option.title = m.id + (m.params ? " · " + m.params : "") + (m.quantization ? " · " + m.quantization : "");
+      option.disabled = !usable(m);
+      modelSelect.add(option);
+    }
+    const wanted = [previous, data.default].find((id) => id && data.models.some((m) => m.id === id && usable(m)));
+    if (wanted) {
+      modelSelect.value = wanted;
+    } else if (data.default) {
+      modelSelect.add(new Option(data.default, data.default));
+      modelSelect.value = data.default;
+    } else {
+      modelSelect.value = "";
+    }
+    modelsOk = true;
+    updateHint();
+    if (!modelSelect.options.length && !quiet) setStatus(backendName + " lists no vision model.", true);
+    else if (data.notice && !quiet) setStatus(data.notice + ".", true);
+    else if (!data.models.some(usable) && !quiet) {
+      setStatus("No vision model is loaded on " + backendName + ", and this interface does not load models.", true);
+    }
+  } catch (error) {
+    modelsOk = false;
+    if (!modelSelect.options.length || !quiet) {
+      modelSelect.replaceChildren(new Option("(unavailable)", ""));
+      modelData = { models: [], loaded_now: [] };
+      updateHint();
+    }
+    if (!quiet) setStatus("Cannot list models: " + error.message, true);
+  }
+}
+
+async function readJson(response) {
+  const raw = await response.text();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("Unexpected answer from the server (HTTP " + response.status + ")");
+  }
+}
+
+async function run() {
+  if (!currentFile) return;
+  if (currentRun) currentRun.abort();
+  const controller = new AbortController();
+  currentRun = controller;
+  result.value = "";
+  copyBtn.disabled = true;
+  startBusy(mode() === "ocr" ? "Extracting text…" : "Describing image…");
+  try {
+    if (!modelsOk) await loadModels({ quiet: true });
+    const query = new URLSearchParams({ mode: mode(), model: modelSelect.value });
+    if (customPrompt()) query.set("prompt", customPrompt());
+    const response = await fetch("/api/analyze?" + query, {
+      method: "POST", body: currentFile, signal: controller.signal,
+    });
+    const data = await readJson(response);
+    if (!response.ok) throw new Error(data.error || "Server answered HTTP " + response.status);
+    stopBusy();
+    result.value = data.text;
+    copyBtn.disabled = false;
+    setStatus("Done in " + data.seconds + " s with " + data.model + ".");
+    loadModels({ quiet: true });   // the load state may have changed
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    stopBusy();
+    const network = error instanceof TypeError;   // fetch() rejects with TypeError when the request never completed
+    setStatus(network ? "Network error: the request did not complete (" + error.message + "). Press Send to retry."
+                      : error.message + " Press Send to retry.", true);
+  } finally {
+    if (currentRun === controller) currentRun = null;
+  }
+}
+
+const dropHint = drop.textContent.trim();
+let noticeTimer = null;
+function flashNotice(text) {
+  drop.textContent = text;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { drop.textContent = dropHint; }, 4000);
+}
+
+function useFile(file) {
+  if (!file) return;
+  if (file.type && !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    flashNotice("Only PNG, JPEG and WebP images are supported.");
+    return;
+  }
+  currentFile = file;
+  $("send").disabled = false;
+  if (preview.src) URL.revokeObjectURL(preview.src);
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = "block";
+  run();
+}
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+fileInput.addEventListener("change", () => { useFile(fileInput.files[0]); fileInput.value = ""; });
+for (const type of ["dragenter", "dragover"]) {
+  document.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add("over"); });
+}
+for (const type of ["dragleave", "drop"]) {
+  document.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove("over"); });
+}
+document.addEventListener("drop", (e) => useFile(e.dataTransfer.files[0]));
+document.addEventListener("paste", (e) => {
+  const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+  if (item) useFile(item.getAsFile());
+});
+// a prompt that was not changed follows the mode; a custom one is kept
+let modeBefore = mode();
+document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", () => {
+  if (promptBox && promptBox.value.trim() === (defaultPrompts[modeBefore] || "").trim()) showDefaultPrompt();
+  modeBefore = mode();
+  updatePromptState();
+  run();
+}));
+if (promptBox) {
+  promptBox.addEventListener("input", updatePromptState);
+  $("prompt-reset").addEventListener("click", () => { showDefaultPrompt(); run(); });
+}
+modelSelect.addEventListener("change", () => { updateHint(); run(); });
+$("send").addEventListener("click", run);
+copyBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(result.value);
+  } catch {
+    result.select();
+    document.execCommand("copy");
+  }
+  setStatus("Copied.");
+});
+
+const themeBtn = $("theme");
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeBtn.textContent = theme === "dark" ? "Light theme" : "Dark theme";
+}
+let theme = "dark";   // default
+try { theme = localStorage.getItem("theme") === "light" ? "light" : "dark"; } catch {}
+applyTheme(theme);
+themeBtn.addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme(theme);
+  try { localStorage.setItem("theme", theme); } catch {}
+});
+
+loadSettings();
+loadModels();
+</script>
+</body>
+</html>

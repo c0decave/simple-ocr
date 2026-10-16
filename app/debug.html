@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>simple-ocr debug</title>
+<style>
+  :root { color-scheme:dark; --bg:#14171c; --card:#1c2128; --text:#e6e9ee; --muted:#98a2b3; --line:#363c46; --accent:#6c9bff; --accent-text:#0b1220; --bad:#ff7b6b; --ok:#3fb68b; --warn:#e3b341; }
+  :root[data-theme="light"] { color-scheme:light; --bg:#f6f7f9; --card:#fff; --text:#1c2128; --muted:#667085; --line:#d0d5dd; --accent:#2f6fed; --accent-text:#fff; --bad:#c0392b; --ok:#1a8f66; --warn:#a97800; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 16px; }
+  h1 { font-size:1.25rem; margin:0; }
+  h2 { font-size:1rem; margin:0 0 12px; display:flex; justify-content:space-between; gap:12px; align-items:baseline; flex-wrap:wrap; }
+  h2 small, .muted { font-weight:400; color:var(--muted); font-size:.875rem; }
+  a { color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; margin-top:12px; }
+  label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
+  button, select { font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .button { display:inline-block; font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; text-decoration:none; cursor:pointer; }
+  .actions { display:flex; gap:8px; align-items:center; flex:none; }
+  .actions > * { white-space:nowrap; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:20px 16px; text-align:center; color:var(--muted); cursor:pointer; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #preview { display:none; max-width:100%; max-height:200px; margin:12px auto 0; border-radius:6px; }
+  #models { max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:6px; margin-top:8px; }
+  .model-row { display:flex; flex-wrap:wrap; gap:2px 10px; align-items:center; padding:6px 10px; border-bottom:1px solid var(--line); }
+  .model-row:last-child { border-bottom:0; }
+  .model-row .name { flex:1 1 220px; min-width:0; overflow-wrap:anywhere; }
+  .badge { display:inline-block; padding:0 8px; border-radius:999px; border:1px solid var(--line); font-size:.78rem; white-space:nowrap; }
+  .badge.ok { border-color:var(--ok); color:var(--ok); }
+  .badge.bad { border-color:var(--bad); color:var(--bad); }
+  .badge.accent { border-color:var(--accent); color:var(--accent); }
+  .warn { color:var(--warn); font-size:.9rem; }
+  #bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin-top:12px; }
+  #bar > div { height:100%; width:0; background:var(--accent); transition:width .3s; }
+  #spinner { display:none; width:16px; height:16px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; flex:none; }
+  .busy #spinner { display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #status { display:flex; gap:8px; align-items:center; overflow-wrap:anywhere; }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.9rem; }
+  th, td { text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; user-select:none; }
+  #stats td { overflow-wrap:anywhere; }
+  #stats td.model { min-width:12em; max-width:28em; overflow-wrap:anywhere; }
+  th.sortable { cursor:pointer; }
+  th.sorted { color:var(--text); }
+  td.num, th.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  td.best { color:var(--ok); font-weight:600; }
+  tr.failed td { color:var(--muted); }
+  tr.clickable { cursor:pointer; }
+  tr.clickable:hover td { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  tr.text-row td { background:var(--bg); white-space:pre-wrap; font:13px/1.5 ui-monospace, monospace; }
+  .group { display:flex; gap:10px; align-items:baseline; padding:8px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .group:last-child { border-bottom:0; }
+  .group .label { font-weight:700; min-width:1.5em; }
+  .group .members { flex:1 1 220px; min-width:0; }
+  .chip { display:inline-block; padding:1px 8px; border-radius:6px; border:1px solid var(--line); margin:2px 4px 2px 0; font-size:.85rem; overflow-wrap:anywhere; }
+  .chip.identical { border-color:var(--ok); }
+  .matrix td, .matrix th { text-align:center; padding:4px 6px; font-size:.8rem; border:1px solid var(--bg); }
+  .matrix th.row { text-align:left; max-width:240px; overflow-wrap:anywhere; text-transform:none; white-space:normal; letter-spacing:0; }
+  .matrix td { cursor:pointer; min-width:34px; }
+  .matrix td.identical { background:color-mix(in srgb, var(--ok) 35%, transparent); }
+  .matrix td.similar { background:color-mix(in srgb, var(--warn) 30%, transparent); }
+  .matrix td.different { background:color-mix(in srgb, var(--bad) 28%, transparent); }
+  .matrix td.selected { outline:2px solid var(--accent); }
+  .diff td { font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; overflow-wrap:anywhere; width:50%; border-bottom:1px solid var(--line); }
+  .diff mark { background:color-mix(in srgb, var(--bad) 40%, transparent); color:inherit; border-radius:3px; }
+  .diff td.b mark { background:color-mix(in srgb, var(--ok) 40%, transparent); }
+  .diff tr.delete td.a, .diff tr.replace td.a { background:color-mix(in srgb, var(--bad) 10%, transparent); }
+  .diff tr.insert td.b, .diff tr.replace td.b { background:color-mix(in srgb, var(--ok) 10%, transparent); }
+  details pre { white-space:pre-wrap; font:12px/1.5 ui-monospace, monospace; margin:8px 0 0; max-height:260px; overflow:auto; }
+  .pick { display:flex; flex:1 1 280px; min-width:0; }
+  .pick select { flex:1; min-width:0; width:100%; text-overflow:ellipsis; }
+  .saved-row { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
+  .saved-row:last-child { border-bottom:0; }
+  .saved-row.current { background:color-mix(in srgb, var(--accent) 8%, transparent); }
+  .saved-row .when { font-weight:600; min-width:11em; }
+  .saved-row .actions { margin-left:auto; }
+  svg.chart { display:block; font:12px system-ui, sans-serif; fill:var(--text); }
+  svg.chart .line { stroke:var(--muted); stroke-width:1.5; fill:none; }
+  svg.chart .axis { stroke:var(--line); stroke-width:1; }
+  svg.chart .threshold { stroke:var(--warn); stroke-dasharray:4 4; }
+  svg.chart .tick { fill:var(--muted); font-size:11px; }
+  svg.chart .load { fill:var(--muted); }
+  svg.chart .infer { fill:var(--accent); }
+  .legend { columns:2 260px; font-size:.82rem; color:var(--muted); margin:8px 0 0; padding-left:2.2em; }
+  .legend li { overflow-wrap:anywhere; }
+  #version { position:fixed; left:12px; bottom:8px; font-size:.75rem; color:var(--muted); pointer-events:none; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>simple-ocr · model benchmark</h1>
+    <span class="actions"><a class="button" href="/">Back</a><button id="theme" type="button">Light theme</button></span>
+  </header>
+
+  <div class="card" id="setup">
+    <h2>1. Image and models</h2>
+    <div id="drop" tabindex="0" role="button">Drop the test image here or click to choose (PNG, JPEG, WebP)</div>
+    <input id="file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+    <img id="preview" alt="Test image">
+    <div class="row">
+      <strong>Task</strong>
+      <label><input type="radio" name="mode" value="ocr" checked> Extract text (OCR)</label>
+      <label><input type="radio" name="mode" value="describe"> Describe image</label>
+    </div>
+    <div class="row">
+      <strong>Models</strong>
+      <button id="sel-all" type="button">All</button>
+      <button id="sel-none" type="button">None</button>
+      <button id="sel-loaded" type="button">Loaded only</button>
+      <span class="muted" id="sel-count"></span>
+    </div>
+    <div id="models"><div class="model-row muted">Loading the model list…</div></div>
+    <div class="row">
+      <label><input type="checkbox" id="restore" checked> Load the currently loaded models again after the run</label>
+    </div>
+    <div class="row">
+      <button id="start" class="primary" type="button" disabled>Start benchmark</button>
+      <span class="warn" id="warning"></span>
+    </div>
+  </div>
+
+  <div class="card hidden" id="progress-card">
+    <h2>2. Progress <small id="elapsed"></small></h2>
+    <div class="row" style="margin-top:0">
+      <div id="status"><span id="spinner"></span><span id="status-text"></span></div>
+      <button id="cancel" type="button" style="margin-left:auto">Cancel after current model</button>
+    </div>
+    <div id="bar"><div></div></div>
+    <details style="margin-top:12px"><summary class="muted">Log</summary><pre id="log"></pre></details>
+  </div>
+
+  <div class="card hidden" id="stats-card">
+    <h2>3. Statistics <small id="stats-note"></small></h2>
+    <div class="scroll"><table id="stats"></table></div>
+    <div class="row"><button id="export" type="button">Export JSON</button><span class="muted">Click a header to sort, a row to see the text.</span></div>
+  </div>
+
+  <div class="card hidden" id="charts-card">
+    <h2>Charts <small>where each model lies</small></h2>
+    <h2 style="margin-top:4px">Similarity tree <small>models that merge further left gave more similar text</small></h2>
+    <div class="scroll"><svg id="tree" class="chart"></svg></div>
+    <h2 style="margin-top:20px">Speed and agreement <small>up = closer to the other models, left = faster</small></h2>
+    <div class="row" style="margin-top:0"><label>X axis <select id="scatter-x">
+      <option value="infer_seconds">Inference s</option><option value="load_seconds">Load s</option>
+      <option value="total_seconds">Total s</option><option value="size_bytes">Size GB</option></select></label></div>
+    <div class="scroll"><svg id="scatter" class="chart"></svg></div>
+    <ol id="scatter-legend" class="legend"></ol>
+    <h2 style="margin-top:20px">Time per model <small>grey = load, blue = inference, fastest first</small></h2>
+    <div class="scroll"><svg id="bars" class="chart"></svg></div>
+  </div>
+
+  <div class="card" id="saved-card">
+    <h2>Saved runs <small id="saved-note"></small></h2>
+    <div id="saved"></div>
+  </div>
+
+  <div class="card hidden" id="compare-card">
+    <h2>4. Comparison <small id="compare-note"></small></h2>
+    <div id="groups"></div>
+    <h2 style="margin-top:20px">Similarity matrix <small>word level, click a cell for the diff</small></h2>
+    <div class="scroll"><table class="matrix" id="matrix"></table></div>
+    <h2 style="margin-top:20px">Diff <small id="diff-title"></small></h2>
+    <div class="row" style="margin-top:0">
+      <label class="pick">A&nbsp;<select id="diff-a"></select></label>
+      <label class="pick">B&nbsp;<select id="diff-b"></select></label>
+    </div>
+    <div class="scroll" style="margin-top:12px"><table class="diff" id="diff"></table></div>
+  </div>
+</main>
+<footer id="version">simple-ocr v__APP_VERSION__</footer>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let currentFile = null;
+let catalog = [];                 // vision models from /api/models
+let backend = { id: "", name: "the model server", can_load: true, loading_allowed: true };   // from /api/models
+function usable(m) { return backend.loading_allowed !== false || m.loaded === true; }
+let pollTimer = null;
+let runState = null;              // last snapshot
+let sort = { key: "load_seconds", dir: 1 };
+let diffPair = null;
+
+// ---- helpers
+function fmtSize(bytes) { return bytes == null ? "" : (bytes / 1e9).toFixed(1) + " GB"; }
+function fmtSec(value) { return value == null ? "" : value.toFixed(2); }
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  Object.assign(node, props);
+  for (const c of children) node.append(c);
+  return node;
+}
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const raw = await response.text();
+  let data = null;
+  try { data = JSON.parse(raw); } catch { /* not JSON */ }
+  if (!response.ok) throw new Error((data && data.error) || "HTTP " + response.status);
+  return data;
+}
+
+// ---- theme (shares the choice with the main page)
+const themeBtn = $("theme");
+let theme = "dark";
+try { theme = localStorage.getItem("theme") === "light" ? "light" : "dark"; } catch {}
+function applyTheme() { document.documentElement.dataset.theme = theme; themeBtn.textContent = theme === "dark" ? "Light theme" : "Dark theme"; }
+applyTheme();
+themeBtn.addEventListener("click", () => {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme();
+  try { localStorage.setItem("theme", theme); } catch {}
+});
+
+// ---- setup: image
+const drop = $("drop"), fileInput = $("file"), preview = $("preview");
+function useFile(file) {
+  if (!file) return;
+  if (file.type && !/^image\/(png|jpeg|webp)$/.test(file.type)) { drop.textContent = "Only PNG, JPEG and WebP images are supported."; return; }
+  currentFile = file;
+  drop.textContent = file.name + " (" + Math.round(file.size / 1024) + " KB). Drop another image to replace it.";
+  if (preview.src) URL.revokeObjectURL(preview.src);
+  preview.src = URL.createObjectURL(file);
+  preview.style.display = "block";
+  updateStart();
+}
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener("change", () => { useFile(fileInput.files[0]); fileInput.value = ""; });
+for (const type of ["dragenter", "dragover"]) document.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add("over"); });
+for (const type of ["dragleave", "drop"]) document.addEventListener(type, (e) => { e.preventDefault(); drop.classList.remove("over"); });
+document.addEventListener("drop", (e) => useFile(e.dataTransfer.files[0]));
+document.addEventListener("paste", (e) => {
+  const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+  if (item) useFile(item.getAsFile());
+});
+
+// ---- setup: models
+function checkedModels() { return [...document.querySelectorAll("#models input:checked")].map((i) => i.value); }
+function updateStart() {
+  const chosen = checkedModels();
+  $("sel-count").textContent = chosen.length + " of " + catalog.length + " selected";
+  const running = runState && runState.status === "running";
+  $("start").disabled = !currentFile || !chosen.length || running;
+  const loaded = catalog.filter((m) => m.loaded);
+  const loadedBytes = loaded.reduce((n, m) => n + (m.size_bytes || 0), 0);
+  $("restore").closest(".row").classList.toggle("hidden", !backend.can_load);
+  if (backend.loading_allowed === false) {
+    $("warning").textContent = "Model loading is disabled: only the models loaded on " + backend.name
+      + " can be chosen. They run one after the other, nothing is loaded or unloaded and no load time is measured.";
+    return;
+  }
+  if (!backend.can_load) {
+    $("warning").textContent = backend.name + " serves fixed models: they run one after the other, nothing is loaded or unloaded and no load time is measured.";
+    return;
+  }
+  $("warning").textContent = "Before every model, everything loaded on " + backend.name + " is unloaded"
+    + (loaded.length ? " (now " + loaded.length + " model" + (loaded.length > 1 ? "s" : "") + ", " + fmtSize(loadedBytes) + ")" : "")
+    + ($("restore").checked
+      ? ". Afterwards they are loaded again, with " + backend.name + "'s default settings."
+      : ". Nothing is loaded afterwards.");
+}
+$("restore").addEventListener("change", updateStart);
+async function loadCatalog() {
+  try {
+    const keep = new Set(checkedModels());   // a refresh must not drop the user's selection
+    const data = await api("/api/models");
+    catalog = data.models;
+    if (data.backend) backend = data.backend;
+    const box = $("models");
+    box.replaceChildren();
+    if (!catalog.length) box.append(el("div", { className: "model-row muted", textContent: backend.name + " lists no vision model." }));
+    for (const m of catalog) {
+      const input = el("input", { type: "checkbox", value: m.id, checked: keep.has(m.id) && usable(m), disabled: !usable(m) });
+      input.addEventListener("change", updateStart);
+      const row = el("label", { className: "model-row" }, input,
+        el("span", { className: "name", textContent: m.id }),
+        el("span", { className: "muted", textContent: [m.params, m.quantization, fmtSize(m.size_bytes)].filter(Boolean).join(" · ") }));
+      if (m.loaded) row.append(el("span", { className: "badge ok", textContent: "loaded" }));
+      else if (!usable(m)) {
+        row.classList.add("muted");
+        row.title = "Not loaded, and this interface does not load models";
+        row.append(el("span", { className: "badge", textContent: "not loaded" }));
+      }
+      box.append(row);
+    }
+    updateStart();
+  } catch (error) {
+    $("models").replaceChildren(el("div", { className: "model-row", textContent: "Cannot list models: " + error.message }));
+  }
+}
+function selectWhere(test) {
+  document.querySelectorAll("#models input").forEach((i) => {
+    const m = catalog.find((c) => c.id === i.value);
+    i.checked = usable(m) && test(m);
+  });
+  updateStart();
+}
+$("sel-all").addEventListener("click", () => selectWhere(() => true));
+$("sel-none").addEventListener("click", () => selectWhere(() => false));
+$("sel-loaded").addEventListener("click", () => selectWhere((m) => m.loaded));
+
+// ---- run control
+async function start() {
+  const query = new URLSearchParams({ mode: document.querySelector('input[name="mode"]:checked').value });
+  for (const id of checkedModels()) query.append("model", id);
+  if ($("restore").checked) query.set("restore", "1");
+  $("start").disabled = true;
+  try {
+    const data = await api("/api/debug/runs?" + query, { method: "POST", body: currentFile });
+    diffPair = null;
+    attach(data.run_id);
+  } catch (error) {
+    $("start").disabled = false;
+    $("progress-card").classList.remove("hidden");
+    $("status-text").textContent = error.message;
+  }
+}
+let attachedRun = null;   // the run the page shows; answers for another run are dropped
+let pollSeq = 0;          // only the answer of the newest poll is applied: an older "running" must not win
+async function attach(runId) {
+  clearInterval(pollTimer);
+  attachedRun = runId;
+  await poll(runId);
+  if (runState && runState.status === "running") pollTimer = setInterval(() => poll(runId), 1000);
+}
+async function poll(runId) {
+  const seq = ++pollSeq;
+  let state;
+  try {
+    state = await api("/api/debug/runs/" + runId);
+  } catch (error) {
+    if (seq === pollSeq) $("status-text").textContent = "Lost contact with the server: " + error.message;
+    return;
+  }
+  if (runId !== attachedRun || seq !== pollSeq) return;
+  runState = state;
+  render();
+  if (runState.status !== "running") { clearInterval(pollTimer); loadCatalog(); loadSaved(); }
+}
+$("start").addEventListener("click", start);
+$("cancel").addEventListener("click", async () => {
+  $("cancel").disabled = true;
+  try { await api("/api/debug/runs/" + runState.id + "/cancel", { method: "POST", body: "" }); } catch (e) { /* shown by the next poll */ }
+});
+
+// ---- rendering
+function isRunning() { return Boolean(runState && runState.status === "running"); }
+
+function render() {
+  const s = runState;
+  // showing a saved run would stop following the active one
+  document.querySelectorAll("#saved button").forEach((b) => { b.disabled = s.status === "running"; });
+  $("progress-card").classList.remove("hidden");
+  const running = s.status === "running";
+  $("progress-card").classList.toggle("busy", running);
+  $("cancel").classList.toggle("hidden", !running);
+  $("cancel").disabled = false;
+  const stepText = { starting: "Starting", unloading: "Unloading all models", loading: "Loading", inferring: "Running the model", "cleaning up": "Unloading the last model", restoring: "Reloading the previous models", finished: "Finished" };
+  if (running) {
+    $("status-text").textContent = "Model " + Math.min(s.done + 1, s.total) + " of " + s.total
+      + (s.current_model ? " · " + s.current_model : "") + " · " + (stepText[s.step] || s.step) + " " + Math.round(s.step_elapsed_seconds) + " s";
+  } else {
+    const label = { done: "Done", cancelled: "Cancelled", error: "Stopped by an error" }[s.status] || s.status;
+    const r = s.restore;
+    const restored = r.requested && r.models.length
+      ? " · restored " + r.loaded.length + " of " + r.models.length + " previous models" + (r.failed.length ? " (failed: " + r.failed.map((f) => f.model + ": " + f.error).join("; ") + ")" : "")
+      : "";
+    $("status-text").textContent = label + ": " + s.done + " of " + s.total + " models" + (s.elapsed_seconds == null ? "" : " in " + s.elapsed_seconds + " s") + restored + (s.error ? " · " + s.error : "");
+  }
+  $("elapsed").textContent = s.elapsed_seconds == null ? "" : s.elapsed_seconds + " s";
+  $("bar").firstElementChild.style.width = (s.total ? Math.round(100 * s.done / s.total) : 0) + "%";
+  $("log").textContent = s.log.map((l) => String(l.t).padStart(7) + " s  " + l.message).join("\n");
+  $("start").disabled = !currentFile || checkedModels().length === 0 || running;
+  renderStats();
+  renderCharts();
+  renderCompare();
+}
+
+const COLUMNS = [
+  { key: "model", label: "Model", text: true },
+  { key: "size_bytes", label: "Size", num: true, fmt: fmtSize },
+  { key: "params", label: "Params", num: true },
+  { key: "quantization", label: "Quant" },
+  { key: "load_seconds", label: "Load s", num: true, fmt: fmtSec, best: true },
+  { key: "infer_seconds", label: "Infer s", num: true, fmt: fmtSec, best: true },
+  { key: "total_seconds", label: "Total s", num: true, fmt: fmtSec, best: true },
+  { key: "chars", label: "Chars", num: true },
+  { key: "group", label: "Group" },
+  { key: "status", label: "Status" },
+];
+
+function groupOf(model) {
+  const groups = runState.analysis ? runState.analysis.groups : [];
+  const group = groups.find((g) => g.models.includes(model));
+  return group ? group.label : "";
+}
+
+function renderStats() {
+  const results = runState.results.map((r) => ({ ...r, group: groupOf(r.model) }));
+  $("stats-card").classList.toggle("hidden", results.length === 0);
+  if (!results.length) return;
+  const key = sort.key;
+  results.sort((x, y) => {
+    const a = x[key], b = y[key];
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;               // missing values always last
+    if (b == null) return -1;
+    return (typeof a === "string" ? a.localeCompare(b) : a - b) * sort.dir;
+  });
+  const best = {};
+  for (const c of COLUMNS.filter((c) => c.best)) {
+    const values = results.filter((r) => r.status === "ok" && r[c.key] != null).map((r) => r[c.key]);
+    best[c.key] = values.length ? Math.min(...values) : null;
+  }
+  const table = $("stats");
+  table.replaceChildren();
+  const head = table.createTHead().insertRow();
+  for (const c of COLUMNS) {
+    const th = el("th", { textContent: c.label + (sort.key === c.key ? (sort.dir > 0 ? " ▲" : " ▼") : ""), className: "sortable" + (c.num ? " num" : "") + (sort.key === c.key ? " sorted" : "") });
+    th.addEventListener("click", () => { sort = { key: c.key, dir: sort.key === c.key ? -sort.dir : 1 }; renderStats(); });
+    head.append(th);
+  }
+  const body = table.createTBody();
+  for (const r of results) {
+    const row = body.insertRow();
+    row.className = "clickable" + (r.status === "ok" ? "" : " failed");
+    for (const c of COLUMNS) {
+      const td = row.insertCell();
+      if (c.key === "status") {
+        td.append(el("span", { className: "badge " + (r.status === "ok" ? "ok" : "bad"), textContent: r.status === "ok" ? "ok" : "failed" }));
+        if (r.error) td.append(" ", el("span", { className: "muted", textContent: r.error }));
+      } else {
+        const value = c.key === "chars" && r.status !== "ok" ? null : r[c.key];
+        td.textContent = value == null ? "" : (c.fmt ? c.fmt(value) : String(value));
+      }
+      if (c.num) td.classList.add("num");
+      if (c.key === "model") td.classList.add("model");
+      if (c.best && r.status === "ok" && best[c.key] != null && r[c.key] === best[c.key]) td.classList.add("best");
+    }
+    const textRow = body.insertRow();
+    textRow.className = "text-row hidden";
+    const cell = textRow.insertCell();
+    cell.colSpan = COLUMNS.length;
+    cell.textContent = r.status === "ok" ? r.text : (r.error || "");
+    row.addEventListener("click", () => textRow.classList.toggle("hidden"));
+    textRow.addEventListener("click", () => textRow.classList.add("hidden"));
+  }
+  const ok = results.filter((r) => r.status === "ok");
+  const load = ok.filter((r) => r.load_seconds != null).map((r) => r.load_seconds);
+  $("stats-note").textContent = ok.length + " ok, " + (results.length - ok.length) + " failed"
+    + (load.length ? " · load " + Math.min(...load).toFixed(2) + " to " + Math.max(...load).toFixed(2) + " s" : "");
+}
+
+// ---- charts (plain SVG, no library)
+const SVG_NS = "http://www.w3.org/2000/svg";
+const PALETTE = ["#6c9bff", "#3fb68b", "#e3b341", "#ff7b6b", "#b78cff", "#4fc3d9", "#f08ccf", "#a3b86c"];
+function svgEl(tag, attrs = {}, text) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text != null) node.textContent = text;
+  return node;
+}
+function sizeSvg(svg, width, height) {
+  svg.replaceChildren();
+  svg.setAttribute("viewBox", "0 0 " + width + " " + height);
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+}
+function niceStep(raw) {
+  if (!(raw > 0)) return 1;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((f) => f * power).find((v) => v >= raw);
+}
+function clip(text, max) { return text.length > max ? text.slice(0, max - 1) + "…" : text; }
+function labelWidth(names) { return Math.min(380, Math.max(120, 30 + 6.6 * Math.max(...names.map((n) => Math.min(n.length, 56))))); }
+function groupColor(model) {
+  const groups = runState.analysis ? runState.analysis.groups : [];
+  const index = groups.findIndex((g) => g.models.includes(model));
+  return index < 0 ? "var(--muted)" : PALETTE[index % PALETTE.length];
+}
+
+function renderCharts() {
+  const a = runState.analysis;
+  const ok = runState.results.filter((r) => r.status === "ok");
+  const visible = runState.status !== "running" && a && ok.length > 0;
+  $("charts-card").classList.toggle("hidden", !visible);
+  if (!visible) return;
+  renderTree(a);
+  renderScatter(a, ok);
+  renderBars(ok);
+}
+
+function renderTree(a) {
+  const svg = $("tree");
+  if (!a.tree || !a.tree.children) { sizeSvg(svg, 300, 24); svg.append(svgEl("text", { x: 0, y: 16, class: "tick" }, "Needs at least two successful models.")); return; }
+  const leaves = [];
+  (function walk(node) { if (node.model) leaves.push(node.model); else node.children.forEach(walk); })(a.tree);
+  const numbers = new Map(a.matrix.models.map((m, i) => [m, i + 1]));
+  const rowH = 22, top = 8, labelW = labelWidth(leaves.map((m) => numbers.get(m) + "  " + m)), plotW = 420;
+  const height = top + leaves.length * rowH + 34, width = labelW + plotW + 24;
+  const maxH = Math.max(a.tree.height, 1 - a.similar_threshold + 0.05, 0.05);
+  const x = (h) => labelW + 10 + (h / maxH) * plotW;
+  sizeSvg(svg, width, height);
+  const axisY = top + leaves.length * rowH + 4;
+  svg.append(svgEl("line", { x1: x(0), x2: x(maxH), y1: axisY, y2: axisY, class: "axis" }));
+  for (let h = 0; h <= maxH + 1e-9; h += maxH > 0.5 ? 0.2 : 0.1) {
+    svg.append(svgEl("line", { x1: x(h), x2: x(h), y1: axisY, y2: axisY + 4, class: "axis" }));
+    svg.append(svgEl("text", { x: x(h), y: axisY + 16, class: "tick", "text-anchor": "middle" }, Math.round(100 - h * 100) + " %"));
+  }
+  const thresholdX = x(1 - a.similar_threshold);
+  svg.append(svgEl("line", { x1: thresholdX, x2: thresholdX, y1: top, y2: axisY, class: "threshold" }));
+  svg.append(svgEl("text", { x: thresholdX + 4, y: axisY + 30, class: "tick" }, "similar from " + Math.round(a.similar_threshold * 100) + " %"));
+  const place = (node) => {
+    if (node.model) {
+      const y = top + leaves.indexOf(node.model) * rowH + rowH / 2;
+      const label = svgEl("text", { x: labelW, y: y + 4, "text-anchor": "end", fill: groupColor(node.model) }, clip(numbers.get(node.model) + "  " + node.model, 56));
+      label.append(svgEl("title", {}, node.model));
+      svg.append(label);
+      return { x: x(0), y };
+    }
+    const kids = node.children.map(place);
+    const nx = x(node.height);
+    for (const k of kids) svg.append(svgEl("line", { x1: k.x, x2: nx, y1: k.y, y2: k.y, class: "line" }));
+    svg.append(svgEl("line", { x1: nx, x2: nx, y1: kids[0].y, y2: kids[kids.length - 1].y, class: "line" }));
+    const y = (kids[0].y + kids[kids.length - 1].y) / 2;
+    const hit = svgEl("circle", { cx: nx, cy: y, r: 3, fill: "var(--muted)" });
+    hit.append(svgEl("title", {}, Math.round((1 - node.height) * 1000) / 10 + " % similar on average"));
+    svg.append(hit);
+    return { x: nx, y };
+  };
+  place(a.tree);
+}
+
+function renderScatter(a, ok) {
+  const svg = $("scatter"), key = $("scatter-x").value;
+  const numbers = new Map(a.matrix.models.map((m, i) => [m, i + 1]));
+  const agreement = a.agreement || {};
+  const points = ok.filter((r) => r[key] != null && agreement[r.model] != null)
+    .map((r) => ({ model: r.model, x: key === "size_bytes" ? r[key] / 1e9 : r[key], y: agreement[r.model] * 100 }));
+  const width = 640, height = 340, left = 48, right = 16, top = 12, bottom = 42;
+  sizeSvg(svg, width, height);
+  $("scatter-legend").replaceChildren();
+  if (!points.length) { svg.append(svgEl("text", { x: 0, y: 16, class: "tick" }, "Needs at least two successful models.")); svg.setAttribute("height", 24); return; }
+  const step = niceStep(Math.max(...points.map((p) => p.x)) / 5);
+  const maxX = Math.ceil(Math.max(...points.map((p) => p.x)) * 1.04 / step) * step || 1;
+  const minY = Math.max(0, Math.floor((Math.min(...points.map((p) => p.y)) - 5) / 10) * 10);
+  const sx = (v) => left + (v / maxX) * (width - left - right);
+  const sy = (v) => top + (1 - (v - minY) / (100 - minY || 1)) * (height - top - bottom);
+  svg.append(svgEl("line", { x1: left, x2: width - right, y1: sy(minY), y2: sy(minY), class: "axis" }));
+  svg.append(svgEl("line", { x1: left, x2: left, y1: top, y2: sy(minY), class: "axis" }));
+  for (let v = minY; v <= 100; v += minY >= 60 ? 5 : 10) {
+    svg.append(svgEl("line", { x1: left, x2: width - right, y1: sy(v), y2: sy(v), class: "axis", opacity: .4 }));
+    svg.append(svgEl("text", { x: left - 6, y: sy(v) + 4, class: "tick", "text-anchor": "end" }, v + " %"));
+  }
+  for (let v = 0; v <= maxX + step / 2; v += step) {
+    svg.append(svgEl("text", { x: sx(v), y: height - bottom + 16, class: "tick", "text-anchor": "middle" }, String(Math.round(v * 100) / 100)));
+  }
+  svg.append(svgEl("text", { x: (left + width) / 2, y: height - 6, class: "tick", "text-anchor": "middle" }, $("scatter-x").selectedOptions[0].text));
+  const taken = [];   // label boxes already placed; a label that fits nowhere is left out (the tooltip still has it)
+  const fits = (box) => box.x >= left && box.x + box.w <= width && box.y >= 0
+    && !taken.some((t) => box.x < t.x + t.w && t.x < box.x + box.w && box.y < t.y + t.h && t.y < box.y + box.h);
+  for (const p of points) {
+    const cx = sx(p.x), cy = sy(p.y), text = String(numbers.get(p.model)), w = 7 * text.length + 2, h = 12;
+    taken.push({ x: cx - 6, y: cy - 6, w: 12, h: 12 });
+    const dot = svgEl("g");
+    dot.append(svgEl("circle", { cx, cy, r: 6, fill: groupColor(p.model), opacity: .85 }));
+    dot.append(svgEl("title", {}, p.model + ": " + p.x.toFixed(2) + ", agreement " + p.y.toFixed(1) + " %"));
+    svg.append(dot);
+    p.label = { text, w, h, cx, cy };
+  }
+  for (const p of points) {
+    const { text, w, h, cx, cy } = p.label;
+    const spot = [[cx + 8, cy - 14], [cx + 8, cy + 2], [cx - 8 - w, cy - 14], [cx - 8 - w, cy + 2], [cx - w / 2, cy - 22], [cx - w / 2, cy + 8]]
+      .map(([x, y]) => ({ x, y, w, h })).find(fits);
+    if (!spot) continue;
+    taken.push(spot);
+    svg.append(svgEl("text", { x: spot.x, y: spot.y + 10, class: "tick" }, text));
+  }
+  for (const m of a.matrix.models) {
+    const item = el("li", { value: numbers.get(m), textContent: m });
+    item.style.color = groupColor(m);
+    $("scatter-legend").append(item);
+  }
+}
+$("scatter-x").addEventListener("change", () => { if (runState) renderCharts(); });
+
+function renderBars(ok) {
+  const svg = $("bars");
+  const rows = ok.filter((r) => r.total_seconds != null).sort((x, y) => x.total_seconds - y.total_seconds);
+  const rowH = 22, top = 4, labelW = labelWidth(rows.map((r) => r.model)), plotW = 360;
+  const width = labelW + plotW + 110, height = top + rows.length * rowH + 8;
+  sizeSvg(svg, width, height);
+  const max = Math.max(...rows.map((r) => r.total_seconds), 0.001);
+  const scale = (v) => (v / max) * plotW;
+  rows.forEach((r, i) => {
+    const y = top + i * rowH;
+    const label = svgEl("text", { x: labelW, y: y + 15, "text-anchor": "end", fill: groupColor(r.model) }, clip(r.model, 56));
+    label.append(svgEl("title", {}, r.model));
+    const load = r.load_seconds || 0, infer = r.infer_seconds || 0;
+    const loadBar = svgEl("rect", { x: labelW + 10, y: y + 4, width: scale(load), height: 14, class: "load" });
+    loadBar.append(svgEl("title", {}, "load " + load.toFixed(2) + " s"));
+    const inferBar = svgEl("rect", { x: labelW + 10 + scale(load), y: y + 4, width: scale(infer), height: 14, class: "infer" });
+    inferBar.append(svgEl("title", {}, "inference " + infer.toFixed(2) + " s"));
+    svg.append(label, loadBar, inferBar,
+      svgEl("text", { x: labelW + 16 + scale(r.total_seconds), y: y + 15, class: "tick" }, load.toFixed(1) + " + " + infer.toFixed(1) + " s"));
+  });
+}
+
+function renderCompare() {
+  const a = runState.analysis;
+  const visible = runState.status !== "running" && a && a.matrix.models.length > 0;
+  $("compare-card").classList.toggle("hidden", !visible);
+  if (!visible) return;
+  const classes = a.pairs.reduce((n, p) => { n[p.class] = (n[p.class] || 0) + 1; return n; }, {});
+  $("compare-note").textContent = "similar means at least " + Math.round(a.similar_threshold * 100) + " % of the words match · pairs: "
+    + (classes.identical || 0) + " identical, " + (classes.similar || 0) + " similar, " + (classes.different || 0) + " different";
+
+  const groups = $("groups");
+  groups.replaceChildren();
+  for (const g of a.groups) {
+    const members = el("div", { className: "members" });
+    for (const m of g.models) {
+      const identical = g.identical_to_representative.includes(m) || m === g.representative;
+      members.append(el("span", { className: "chip" + (identical ? " identical" : ""), textContent: m }));
+    }
+    const kind = g.models.length === 1 ? "unique result"
+      : g.identical_to_representative.length === g.models.length - 1 ? "all identical"
+      : "similar, with differences";
+    groups.append(el("div", { className: "group" },
+      el("span", { className: "label", textContent: g.label }), members,
+      el("span", { className: "muted", textContent: g.models.length + " model" + (g.models.length > 1 ? "s" : "") + " · " + kind })));
+  }
+
+  const models = a.matrix.models;
+  const table = $("matrix");
+  table.replaceChildren();
+  const head = table.createTHead().insertRow();
+  head.append(el("th"));
+  models.forEach((_, i) => head.append(el("th", { textContent: String(i + 1) })));
+  const body = table.createTBody();
+  models.forEach((rowModel, i) => {
+    const row = body.insertRow();
+    row.append(el("th", { className: "row", textContent: (i + 1) + "  " + rowModel }));
+    models.forEach((colModel, j) => {
+      const value = a.matrix.values[i][j];
+      const cls = i === j ? "" : value >= 1 ? "identical" : value >= a.similar_threshold ? "similar" : "different";
+      const td = row.insertCell();
+      td.className = cls + (diffPair && diffPair[0] === rowModel && diffPair[1] === colModel ? " selected" : "");
+      td.textContent = i === j ? "–" : String(Math.round(value * 100));
+      td.title = rowModel + " ↔ " + colModel + ": " + Math.round(value * 1000) / 10 + " %";
+      if (i !== j) td.addEventListener("click", () => showDiff(rowModel, colModel));
+    });
+  });
+
+  for (const select of [$("diff-a"), $("diff-b")]) {
+    const previous = select.value;
+    select.replaceChildren(...models.map((m) => new Option(m, m)));
+    if (models.includes(previous)) select.value = previous;
+  }
+  if (!diffPair && models.length > 1) {
+    const rep = a.groups[0].representative;
+    const other = models.find((m) => m !== rep && !a.groups[0].identical_to_representative.includes(m)) || models.find((m) => m !== rep);
+    showDiff(rep, other);
+  }
+}
+
+async function showDiff(modelA, modelB) {
+  diffPair = [modelA, modelB];
+  $("diff-a").value = modelA;
+  $("diff-b").value = modelB;
+  const table = $("diff");
+  try {
+    const query = new URLSearchParams({ a: modelA, b: modelB });
+    const data = await api("/api/debug/runs/" + runState.id + "/diff?" + query);
+    $("diff-title").textContent = Math.round(data.similarity * 1000) / 10 + " % similar";
+    table.replaceChildren();
+    const head = table.createTHead().insertRow();
+    head.append(el("th", { textContent: "A · " + modelA }), el("th", { textContent: "B · " + modelB }));
+    const body = table.createTBody();
+    const cellFor = (line, side) => {
+      const td = el("td", { className: side });
+      if (line) for (const [text, changed] of line) td.append(changed ? el("mark", { textContent: text }) : document.createTextNode(text));
+      return td;
+    };
+    for (const op of data.ops) {
+      if (op.tag === "truncated") {
+        const cell = body.insertRow().insertCell();
+        cell.colSpan = 2;
+        cell.className = "muted";
+        cell.textContent = "Only the first " + op.lines + " lines are compared.";
+        continue;
+      }
+      const rows = Math.max(op.a.length, op.b.length);
+      for (let i = 0; i < rows; i++) {
+        const row = body.insertRow();
+        row.className = op.tag;
+        row.append(cellFor(op.a[i], "a"), cellFor(op.b[i], "b"));
+      }
+    }
+    if (!data.ops.length) body.insertRow().insertCell().textContent = "Both results are empty.";
+    renderCompare();   // refresh the highlighted matrix cell
+  } catch (error) {
+    $("diff-title").textContent = error.message;
+  }
+}
+for (const id of ["diff-a", "diff-b"]) {
+  $(id).addEventListener("change", () => { if ($("diff-a").value && $("diff-b").value) showDiff($("diff-a").value, $("diff-b").value); });
+}
+
+$("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(runState, null, 2)], { type: "application/json" });
+  const link = el("a", { href: URL.createObjectURL(blob), download: "benchmark-" + runState.id + ".json" });
+  link.click();
+  URL.revokeObjectURL(link.href);
+});
+
+// ---- saved runs (the server keeps every finished run as JSON below DATA_DIR)
+async function loadSaved() {
+  const box = $("saved");
+  try {
+    const data = await api("/api/debug/saved");
+    box.replaceChildren();
+    $("saved-note").textContent = data.enabled ? data.runs.length + " saved" : "";
+    if (!data.enabled) { box.append(el("div", { className: "muted", textContent: "Saving is off. Set DATA_DIR on the server to keep finished runs." })); return; }
+    if (!data.runs.length) { box.append(el("div", { className: "muted", textContent: "No finished run yet." })); return; }
+    for (const r of data.runs) {
+      const row = el("div", { className: "saved-row" + (runState && runState.id === r.id ? " current" : "") },
+        el("span", { className: "when", textContent: new Date(r.started_at * 1000).toLocaleString() }),
+        el("span", { textContent: r.mode === "describe" ? "describe" : "ocr" }),
+        el("span", { textContent: r.ok + " of " + r.total + " ok" }),
+        el("span", { className: "muted", textContent: (r.elapsed_seconds == null ? "" : r.elapsed_seconds + " s") + (r.status === "done" ? "" : " · " + r.status) }));
+      const open = el("button", { type: "button", textContent: "Show", disabled: isRunning(), title: "Not while a run is active" });
+      open.addEventListener("click", () => { diffPair = null; attach(r.id); });
+      const download = el("a", { className: "button", textContent: "JSON", href: "/api/debug/runs/" + r.id, download: "benchmark-" + r.id + ".json" });
+      row.append(el("span", { className: "actions" }, open, download));
+      box.append(row);
+    }
+  } catch (error) {
+    box.replaceChildren(el("div", { className: "muted", textContent: "Cannot list saved runs: " + error.message }));
+  }
+}
+
+// ---- init: show the latest run if the server has one (also after a page reload during a run)
+(async () => {
+  await loadCatalog();
+  loadSaved();
+  try {
+    const latest = await api("/api/debug/runs/latest");
+    if (latest && latest.id) attach(latest.id);
+  } catch { /* no run yet */ }
+})();
+</script>
+</body>
+</html>

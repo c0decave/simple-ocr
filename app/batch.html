@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>simple-ocr batch</title>
+<style>
+  :root { color-scheme:dark; --bg:#14171c; --card:#1c2128; --text:#e6e9ee; --muted:#98a2b3; --line:#363c46; --accent:#6c9bff; --accent-text:#0b1220; --bad:#ff7b6b; --ok:#4cc38a; }
+  :root[data-theme="light"] { color-scheme:light; --bg:#f6f7f9; --card:#fff; --text:#1c2128; --muted:#667085; --line:#d0d5dd; --accent:#2f6fed; --accent-text:#fff; --bad:#c0392b; --ok:#1a7f4b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:24px 16px 48px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 16px; }
+  h1 { font-size:1.25rem; margin:0; }
+  h2 { font-size:1rem; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:28px 16px; text-align:center; color:var(--muted); cursor:pointer; }
+  #drop.over { border-color:var(--accent); color:var(--accent); }
+  #drop:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; margin-top:16px; }
+  label { display:inline-flex; gap:6px; align-items:center; cursor:pointer; }
+  select, button { font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  button { cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
+  .button { display:inline-block; font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; text-decoration:none; cursor:pointer; }
+  .actions { display:flex; gap:8px; align-items:center; flex:none; }
+  .actions > * { white-space:nowrap; }
+  .model { display:flex; flex:1 1 320px; min-width:0; }
+  .model select { flex:1; min-width:0; width:100%; text-overflow:ellipsis; }
+  .muted { color:var(--muted); }
+  .hint { color:var(--muted); font-size:.875rem; overflow-wrap:anywhere; }
+  .error { color:var(--bad); }
+  .hidden { display:none !important; }
+  #files { list-style:none; margin:12px 0 0; padding:0; max-height:220px; overflow:auto; }
+  #files li { display:flex; gap:12px; align-items:center; padding:4px 0; border-bottom:1px solid var(--line); }
+  #files li .name { flex:1; min-width:0; overflow-wrap:anywhere; }
+  #files li button { padding:0 8px; }
+  #prompt-box summary { cursor:pointer; color:var(--muted); }
+  #prompt-box summary b { color:var(--text); font-weight:600; }
+  #prompt { width:100%; min-height:90px; margin-top:8px; resize:vertical; font:14px/1.5 ui-monospace, monospace; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px; }
+  progress { width:100%; height:10px; accent-color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; table-layout:fixed; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+  th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; }
+  th.num, td.num { text-align:right; width:5.5em; }
+  th.state, td.state { width:7em; }
+  td.text { white-space:pre-wrap; font:13px/1.45 ui-monospace, monospace; max-height:6.5em; }
+  .badge { display:inline-block; padding:0 8px; border-radius:999px; border:1px solid var(--line); font-size:.78rem; white-space:nowrap; }
+  .badge.ok { border-color:var(--ok); color:var(--ok); }
+  .badge.error { border-color:var(--bad); color:var(--bad); }
+  .badge.running { border-color:var(--accent); color:var(--accent); }
+  #earlier li { margin:4px 0; }
+  #version { position:fixed; left:12px; bottom:8px; font-size:.75rem; color:var(--muted); pointer-events:none; }
+  @media (max-width:600px) { th.num, td.num { width:4em; } td.text { display:none; } th.text { display:none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>simple-ocr · batch</h1>
+    <span class="actions"><a class="button" href="/">Back</a><button id="theme" type="button">Light theme</button></span>
+  </header>
+
+  <div class="card">
+    <h2>1. Images</h2>
+    <div id="drop" tabindex="0" role="button" aria-label="Choose images or ZIP archives">
+      Drop images or ZIP archives here, or click to choose (PNG, JPEG, WebP)
+    </div>
+    <input id="file" type="file" multiple accept="image/png,image/jpeg,image/webp,.zip,application/zip" hidden>
+    <ul id="files"></ul>
+    <div class="hint" id="files-summary"></div>
+
+    <div class="row">
+      <label><input type="radio" name="mode" value="ocr" checked> Extract text (OCR)</label>
+      <label><input type="radio" name="mode" value="describe"> Describe image</label>
+      <label class="model">Model <select id="model"><option value="">loading…</option></select></label>
+    </div>
+    <!--PROMPT--><details id="prompt-box" style="margin-top:12px">
+      <summary>Prompt <b id="prompt-state">default</b></summary>
+      <textarea id="prompt" spellcheck="false" aria-label="Prompt sent with every image"></textarea>
+      <div class="hint">Empty or unchanged means the default prompt of the task.</div>
+    </details><!--/PROMPT-->
+    <div class="row">
+      <label><input type="checkbox" id="embed"> Embed the images in the report</label>
+      <button id="start" class="primary" type="button" disabled>Start batch</button>
+    </div>
+    <div class="hint" id="start-hint">Images are kept in memory only, never written to disk.</div>
+  </div>
+
+  <div class="card hidden" id="progress-card">
+    <h2>2. Progress <span class="muted" id="batch-model"></span></h2>
+    <progress id="bar" max="1" value="0"></progress>
+    <div class="row" style="margin-top:8px">
+      <span id="status-text" role="status" aria-live="polite"></span>
+      <span class="actions" style="margin-left:auto">
+        <button id="cancel" type="button" disabled>Cancel</button>
+      </span>
+    </div>
+    <div class="row">
+      <span class="muted">Report:</span>
+      <a class="button" id="get-md" download>Markdown</a>
+      <a class="button" id="get-html" download>HTML</a>
+      <a class="button" id="get-pdf" download>PDF</a>
+    </div>
+    <table style="margin-top:12px">
+      <thead><tr><th class="num">#</th><th>File</th><th class="state">Status</th><th class="num">Time</th><th class="text">Text</th></tr></thead>
+      <tbody id="items"></tbody>
+    </table>
+    <div id="skipped" class="hint"></div>
+  </div>
+
+  <div class="card">
+    <h2>Earlier batches <span class="muted" style="font-weight:400">(in memory until the server restarts)</span></h2>
+    <ul id="earlier" class="muted" style="margin:0; padding-left:18px"></ul>
+  </div>
+</main>
+<div id="version">simple-ocr v__APP_VERSION__</div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const el = (tag, props = {}, ...children) => { const node = Object.assign(document.createElement(tag), props); node.append(...children); return node; };
+let chosen = [];            // File objects picked by the user
+let catalog = [];           // vision models from /api/models
+let loadingAllowed = true;
+let defaultPrompts = {};
+let current = null;         // id of the batch shown
+let pollTimer = null;
+let pollSeq = 0;
+const promptBox = $("prompt");
+
+function mode() { return document.querySelector('input[name="mode"]:checked').value; }
+function fmtSize(bytes) { return bytes == null ? "" : bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + " GB" : (bytes / 1e6).toFixed(1) + " MB"; }
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const raw = await response.text();
+  let data;
+  try { data = JSON.parse(raw); } catch { throw new Error("Server answered HTTP " + response.status); }
+  if (!response.ok) throw new Error(data.error || "Server answered HTTP " + response.status);
+  return data;
+}
+
+// ---- files
+function renderFiles() {
+  const list = $("files");
+  list.replaceChildren();
+  chosen.forEach((file, index) => {
+    const remove = el("button", { type: "button", textContent: "×", title: "Remove" });
+    remove.addEventListener("click", () => { chosen.splice(index, 1); renderFiles(); });
+    list.append(el("li", {}, el("span", { className: "name", textContent: file.name }), el("span", { className: "muted", textContent: fmtSize(file.size) }), remove));
+  });
+  const total = chosen.reduce((n, f) => n + f.size, 0);
+  $("files-summary").textContent = chosen.length ? chosen.length + (chosen.length === 1 ? " file, " : " files, ") + fmtSize(total) : "";
+  updateStart();
+}
+function addFiles(files) {
+  const known = new Set(chosen.map((f) => f.name + "/" + f.size));
+  for (const file of files) if (!known.has(file.name + "/" + file.size)) chosen.push(file);
+  renderFiles();
+}
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+$("file").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+document.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) drop.classList.remove("over"); });
+document.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); addFiles(e.dataTransfer.files); });
+
+// ---- models, settings, prompt
+async function loadModels() {
+  try {
+    const data = await api("/api/models");
+    catalog = data.models;
+    loadingAllowed = !data.backend || data.backend.loading_allowed !== false;
+    const usable = (m) => loadingAllowed || m.loaded === true;
+    const select = $("model");
+    const previous = select.value;
+    select.replaceChildren();
+    for (const m of catalog) {
+      const option = new Option(m.id + (m.size_bytes != null ? " · " + fmtSize(m.size_bytes) : "") + (m.loaded ? " · loaded" : usable(m) ? "" : " · not loaded"), m.id);
+      option.disabled = !usable(m);
+      select.add(option);
+    }
+    const wanted = [previous, data.default].find((id) => id && catalog.some((m) => m.id === id && usable(m)));
+    select.value = wanted || "";
+    if (data.notice) $("start-hint").textContent = data.notice + ".";
+    if (!catalog.some(usable)) $("start-hint").textContent = "No usable vision model on " + (data.backend ? data.backend.name : "the model server") + ".";
+  } catch (error) {
+    $("model").replaceChildren(new Option("(unavailable)", ""));
+    $("start-hint").textContent = "Cannot list models: " + error.message;
+  }
+  updateStart();
+}
+function customPrompt() {
+  if (!promptBox) return "";
+  const text = promptBox.value.trim();
+  return text && text !== (defaultPrompts[mode()] || "").trim() ? text : "";
+}
+function updatePromptState() { if (promptBox) $("prompt-state").textContent = customPrompt() ? "custom" : "default"; }
+async function loadSettings() {
+  if (!promptBox) return;
+  try {
+    const data = await api("/api/settings");
+    defaultPrompts = data.prompts || {};
+    promptBox.maxLength = data.prompt_max_chars || 4000;
+    if (!customPrompt()) promptBox.value = defaultPrompts[mode()] || "";
+  } catch {}
+  updatePromptState();
+}
+let modeBefore = mode();
+document.querySelectorAll('input[name="mode"]').forEach((r) => r.addEventListener("change", () => {
+  if (promptBox && promptBox.value.trim() === (defaultPrompts[modeBefore] || "").trim()) promptBox.value = defaultPrompts[mode()] || "";
+  modeBefore = mode();
+  updatePromptState();
+}));
+if (promptBox) promptBox.addEventListener("input", updatePromptState);
+
+// ---- start, progress, cancel
+function running() { return $("cancel").dataset.running === "1"; }
+function updateStart() { $("start").disabled = !chosen.length || !$("model").value || running(); }
+$("model").addEventListener("change", updateStart);
+
+function start() {
+  const form = new FormData();
+  for (const file of chosen) form.append("files", file, file.name);
+  const query = new URLSearchParams({ mode: mode(), model: $("model").value });
+  if (customPrompt()) query.set("prompt", customPrompt());
+  if ($("embed").checked) query.set("images", "1");
+  $("start").disabled = true;
+  $("progress-card").classList.remove("hidden");
+  $("items").replaceChildren();
+  $("skipped").textContent = "";
+  setReport(null);
+  const request = new XMLHttpRequest();   // fetch() cannot report upload progress
+  request.open("POST", "/api/batch?" + query);
+  request.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    $("bar").max = e.total; $("bar").value = e.loaded;
+    $("status-text").textContent = "Uploading " + Math.round(100 * e.loaded / e.total) + " %";
+  };
+  request.onload = () => {
+    let data = {};
+    try { data = JSON.parse(request.responseText); } catch {}
+    if (request.status !== 200) {
+      $("status-text").textContent = data.error || "Server answered HTTP " + request.status;
+      $("status-text").className = "error";
+      updateStart();
+      return;
+    }
+    $("status-text").className = "";
+    chosen = []; renderFiles();
+    attach(data.id);
+  };
+  request.onerror = () => { $("status-text").textContent = "Network error: the upload did not complete."; $("status-text").className = "error"; updateStart(); };
+  request.send(form);
+}
+$("start").addEventListener("click", start);
+
+function setReport(id) {
+  for (const ext of ["md", "html", "pdf"]) {
+    const link = $("get-" + ext);
+    if (id) { link.href = "/api/batch/" + id + "/report." + ext; link.removeAttribute("aria-disabled"); link.style.pointerEvents = ""; link.style.opacity = ""; }
+    else { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); link.style.pointerEvents = "none"; link.style.opacity = ".5"; }
+  }
+}
+async function attach(id) {
+  clearInterval(pollTimer);
+  current = id;
+  await poll(id);
+  if (running()) pollTimer = setInterval(() => poll(id), 1000);
+}
+async function poll(id) {
+  const seq = ++pollSeq;
+  let state;
+  try { state = await api("/api/batch/" + id); }
+  catch (error) { if (seq === pollSeq) $("status-text").textContent = "Lost contact with the server: " + error.message; return; }
+  if (id !== current || seq !== pollSeq) return;   // an older answer or another batch
+  render(state);
+  if (state.status !== "running") { clearInterval(pollTimer); loadEarlier(); }
+}
+function render(s) {
+  $("progress-card").classList.remove("hidden");
+  const isRunning = s.status === "running";
+  $("cancel").dataset.running = isRunning ? "1" : "";
+  $("cancel").disabled = !isRunning;
+  updateStart();
+  $("batch-model").textContent = "· " + s.model + " · " + (s.mode === "ocr" ? "OCR" : "Describe") + (s.prompt ? " · custom prompt" : "");
+  $("bar").max = s.total || 1; $("bar").value = s.done;
+  const label = { running: "Running", done: "Done", cancelled: "Cancelled" }[s.status] || s.status;
+  $("status-text").textContent = label + ": " + s.done + " of " + s.total + " images in " + s.elapsed_seconds + " s";
+  setReport(s.id);
+  const body = $("items");
+  body.replaceChildren();
+  s.items.forEach((item, index) => {
+    const badge = el("span", { className: "badge " + (item.status === "ok" ? "ok" : item.status === "error" ? "error" : item.status === "running" ? "running" : ""), textContent: item.status });
+    const text = item.status === "error" ? el("span", { className: "error", textContent: item.error }) : document.createTextNode(item.text.length > 400 ? item.text.slice(0, 400) + " …" : item.text);
+    body.append(el("tr", {}, el("td", { className: "num", textContent: index + 1 }), el("td", { textContent: item.name }),
+      el("td", { className: "state" }, badge), el("td", { className: "num", textContent: item.seconds == null ? "" : item.seconds + " s" }),
+      el("td", { className: "text" }, text)));
+  });
+  $("skipped").textContent = s.skipped.length ? "Skipped: " + s.skipped.map((x) => x.name + " (" + x.reason + ")").join("; ") : "";
+}
+$("cancel").addEventListener("click", async () => {
+  $("cancel").disabled = true;
+  try { await api("/api/batch/" + current + "/cancel", { method: "POST" }); } catch (error) { $("status-text").textContent = error.message; }
+});
+
+// ---- earlier batches
+async function loadEarlier() {
+  try {
+    const data = await api("/api/batch");
+    const list = $("earlier");
+    list.replaceChildren();
+    if (!data.batches.length) list.append(el("li", { textContent: "None yet." }));
+    for (const b of data.batches) {
+      const when = new Date(b.created_at * 1000).toLocaleString();
+      const show = el("a", { href: "#", textContent: when + " · " + b.model + " · " + b.ok + " of " + b.total + " ok" + (b.status === "done" ? "" : " · " + b.status) });
+      show.addEventListener("click", (e) => { e.preventDefault(); attach(b.id); });
+      list.append(el("li", {}, show));
+    }
+    if (!current && data.batches.length && data.batches[0].status === "running") attach(data.batches[0].id);
+  } catch (error) {
+    $("earlier").replaceChildren(el("li", { textContent: "Cannot list batches: " + error.message }));
+  }
+}
+
+// ---- theme
+const themeBtn = $("theme");
+function applyTheme(theme) { document.documentElement.dataset.theme = theme; themeBtn.textContent = theme === "dark" ? "Light theme" : "Dark theme"; }
+let theme = "dark";
+try { theme = localStorage.getItem("theme") === "light" ? "light" : "dark"; } catch {}
+applyTheme(theme);
+themeBtn.addEventListener("click", () => { theme = theme === "dark" ? "light" : "dark"; applyTheme(theme); try { localStorage.setItem("theme", theme); } catch {} });
+
+setReport(null);
+renderFiles();
+loadSettings();
+loadModels();
+loadEarlier();
+</script>
+</body>
+</html>

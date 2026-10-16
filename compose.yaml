@@ -1,0 +1,19 @@
+# docker compose / podman compose. Settings come from .env (also used for ${APP_PORT}).
+# Benchmark runs live in the named volume simple-ocr-data, which "down" and "up --build" keep;
+# only "down -v" or "volume rm" delete it. run.sh uses the same volume.
+services:
+  simple-ocr:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: simple-ocr
+    env_file: .env
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    volumes:
+      - simple-ocr-data:/data
+    restart: unless-stopped
+
+volumes:
+  simple-ocr-data:
+    name: simple-ocr-data

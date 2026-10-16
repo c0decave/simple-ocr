@@ -1,0 +1,16 @@
+# docker compose / podman compose for the packaged image. Load it first: podman load -i image.tar
+# Settings come from .env (also used for ${APP_PORT}). Benchmark runs live in the volume simple-ocr-data.
+services:
+  simple-ocr:
+    image: localhost/simple-ocr:__VERSION__
+    container_name: simple-ocr
+    env_file: .env
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    volumes:
+      - simple-ocr-data:/data
+    restart: unless-stopped
+
+volumes:
+  simple-ocr-data:
+    name: simple-ocr-data
