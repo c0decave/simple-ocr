@@ -143,6 +143,24 @@ be loaded by LM Studio (JIT loading) or Ollama; switch JIT loading off in LM Stu
 | vLLM | `/v1/models` | not reported, every served model is offered | no |
 | llama.cpp | `/models` or `/v1/models` | `architecture.input_modalities` | router mode only |
 
+### Ollama without a GPU
+
+On a CPU alone Ollama starts one thread per CPU it sees. When the machine has other work to do,
+that can turn seconds into minutes: on a 20-thread CPU with other jobs running, the same request
+took 401 s with Ollama's 20 threads and 4.3 s with 8. Pinning the Ollama container to fewer CPUs
+with `taskset` did not help in our tests. The app sends no thread setting, so set it in a copy of
+the model and pick that copy on the page:
+
+```
+printf 'FROM granite3.2-vision:2b\nPARAMETER num_thread 8\n' > Modelfile
+ollama create granite3.2-vision-t8 -f Modelfile
+```
+
+Some small models loop on the OCR prompt. Ollama then stops the answer with "token repeat limit
+reached", and the page shows that error. `moondream:1.8b` does this with OCR but can still describe
+images; `granite3.2-vision:2b` reads text fine. A slow model may also need a larger
+`UPSTREAM_TIMEOUT`.
+
 Uploaded images are kept in memory only, for the request or the benchmark run, and are never written
 to disk; saved runs contain the texts and timings, not the image.
 
