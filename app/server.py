@@ -69,8 +69,9 @@ class Config:
     timeout: float = 300.0
     data_dir: str = ""   # finished benchmark runs are saved below it; empty = not saved
     tls_verify: bool = True   # False accepts any https certificate (self-signed), see <PREFIX>_TLS_VERIFY
-    # hard-coded in app/backends.py, never read from the environment; looked up when a Config is made
-    allow_loading: bool = field(default_factory=lambda: backends.MODEL_LOADING_ALLOWED)
+    # MODEL_LOADING_ALLOWED. False: the interface never makes the model server load (or unload) a model;
+    # every model is listed, but only the loaded ones can be used, also in the benchmark.
+    allow_loading: bool = True
     custom_prompt: bool = True   # CUSTOM_PROMPT: the prompt may be changed per request
     debug_page: bool = True      # DEBUG_PAGE: /debug and every /api/debug route
     batch_page: bool = True      # BATCH_PAGE: /batch and every /api/batch route
@@ -100,6 +101,7 @@ class Config:
             custom_prompt=_flag(env, "CUSTOM_PROMPT", default=True),
             debug_page=_flag(env, "DEBUG_PAGE", default=True),
             batch_page=_flag(env, "BATCH_PAGE", default=True),
+            allow_loading=_flag(env, "MODEL_LOADING_ALLOWED", default=True),
             max_batch_bytes=int(float(env.get("MAX_BATCH_MB", "200")) * 1024 * 1024),
         )
 
@@ -567,6 +569,8 @@ def startup_line(config, host, port):
     line = "simple-ocr listening on http://%s:%d, %s: %s" % (host, port, config.backend_name, config.backend_url)
     if not config.tls_verify:
         line += " (TLS certificate is NOT verified)"
+    if not config.allow_loading:
+        line += ", model loading is disabled: only loaded models are used"
     return line
 
 

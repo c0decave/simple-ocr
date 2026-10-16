@@ -124,13 +124,14 @@ that other people or tools may be using.
 
 ## Model loading lock
 
-`MODEL_LOADING_ALLOWED` in `app/backends.py` is hard-coded on purpose, not an `.env` setting. It is
-`True` at the moment: models are loaded on first use, and the benchmark unloads and loads them.
+`MODEL_LOADING_ALLOWED` in `.env` is `true` by default: models are loaded on first use, and the
+benchmark unloads and loads them.
 
-Set it to `False` and rebuild to lock loading: the interface then never makes the model server load or
-unload a model. Every vision model is listed, but only the loaded ones can be chosen, on the main page
-and in the benchmark, and the API refuses the others (HTTP 403) before anything reaches the model
-server. The benchmark then runs the loaded models one after the other, without unloading, loading or
+Set it to `false` and restart to lock loading: the interface then never makes the model server load or
+unload a model, and the start log says so. Every vision model is listed, but only the loaded ones can
+be chosen, on the main page and in the benchmark, and the API refuses the others (HTTP 403) before
+anything reaches the model server. Text models are never offered, loaded or not, because they cannot
+see the image; a loaded text model shows up in the "Loaded on" table only. The benchmark then runs the loaded models one after the other, without unloading, loading or
 restoring. A model that someone unloads on the server between the check and the request would still
 be loaded by LM Studio (JIT loading) or Ollama; switch JIT loading off in LM Studio as a second safeguard.
 
@@ -182,6 +183,7 @@ to disk; saved runs contain the texts and timings, not the image.
 | `MAX_BATCH_MB` | `200` | largest batch upload (images and ZIP archives together) |
 | `DEBUG_PAGE` | `true` | the Debug button and the benchmark page; `false` removes the button and the server answers `/debug` and every `/api/debug/...` route with 403 |
 | `DEFAULT_MODEL` | first loaded vision model | model preselected on the page |
+| `MODEL_LOADING_ALLOWED` | `true` | `false` locks model loading: only models already loaded on the model server can be used, see "Model loading lock" |
 | `DESCRIBE_LANGUAGE` | `German` | language of the "Describe image" answer |
 | `MAX_UPLOAD_MB` | `20` | upload limit |
 | `UPSTREAM_TIMEOUT` | `300` | seconds to wait for the model |

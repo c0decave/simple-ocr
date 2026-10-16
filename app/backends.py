@@ -32,12 +32,6 @@ BACKENDS = {
 }
 LOAD_POLL_DELAY = 0.1   # seconds between status checks while llama.cpp loads a model
 
-# Hard-coded on purpose, not an .env setting. False: the web interface never makes the model server
-# load (or unload) models; every model is listed, but only the loaded ones can be used, also in the
-# benchmark. True: models are loaded on first use, and the benchmark unloads and loads them.
-MODEL_LOADING_ALLOWED = True
-
-
 def can_load(config):
     fixed = BACKENDS[config.backend][3]
     return fixed if fixed is not None else _llamacpp_listing(config)[1]

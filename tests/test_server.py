@@ -828,6 +828,12 @@ class ConfigHostPortAndEnvFile(unittest.TestCase):
         self.assertIn("certificate is NOT verified", line)
         self.assertNotIn("NOT verified", server.startup_line(server.Config(), "0.0.0.0", 8080))
 
+    def test_startup_line_says_when_model_loading_is_off(self):
+        line = server.startup_line(server.Config(allow_loading=False, tls_verify=False), "0.0.0.0", 8080)
+        self.assertIn("model loading is disabled", line)
+        self.assertIn("NOT verified", line)
+        self.assertNotIn("loading", server.startup_line(server.Config(), "0.0.0.0", 8080))
+
     def test_a_url_without_http_or_https_is_rejected_at_start(self):
         for value in ("secret-lm.example:1234", "192.0.2.77:1234", "secret-lm.example", "ftp://lm.example"):
             with self.assertRaises(ValueError) as caught:

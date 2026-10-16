@@ -2,7 +2,7 @@
 
 Before every model is loaded, everything that is loaded gets unloaded, so load times and memory use
 are comparable (LM Studio, Ollama). vLLM serves fixed models, and with model loading disabled
-(backends.MODEL_LOADING_ALLOWED) only loaded models are used: then the models only run, one after
+(MODEL_LOADING_ALLOWED=false) only loaded models are used: then the models only run, one after
 the other, and no load time is measured. Results are compared with app.compare.
 """
 import json

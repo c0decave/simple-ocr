@@ -224,7 +224,7 @@ class FakeLlamaCpp(FakeHttp):
 
 class AppMixin:
     def start_app(self, **config):
-        # the loading mode unless a test asks otherwise; the hard-coded default (off) is ModelLoadingDisabled
+        # loading allowed unless a test asks otherwise; MODEL_LOADING_ALLOWED=false is ModelLoadingDisabled
         app = server.make_server(server.Config(**dict({"timeout": 5, "allow_loading": True}, **config)), "127.0.0.1", 0)
         threading.Thread(target=app.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(app.server_close)
@@ -469,14 +469,41 @@ class ModelLoadingDisabled(AppMixin, unittest.TestCase):
     def model_requests(self):
         return [(m, p, (b or {}).get("model")) for m, p, b, _ in self.ollama.requests if p in ("/api/generate", "/api/chat")]
 
-    def test_the_hard_coded_value_is_used_and_the_environment_cannot_change_it(self):
-        names = ("ALLOW_MODEL_LOADING", "MODEL_LOADING_ALLOWED", "ALLOW_LOADING", "OLLAMA_ALLOW_LOADING")
-        for coded in (False, True):
-            with mock.patch.object(backends, "MODEL_LOADING_ALLOWED", coded):
-                self.assertIs(server.Config().allow_loading, coded)
-                for value in ("true", "false"):
-                    with mock.patch.dict(os.environ, {name: value for name in names}, clear=True):
-                        self.assertIs(server.Config.from_env().allow_loading, coded, (coded, value))
+    def test_model_loading_allowed_comes_from_the_environment(self):
+        self.assertIs(server.Config().allow_loading, True)
+        cases = {None: True, "": True, "true": True, "1": True, " Yes ": True, "on": True,
+                 "false": False, "0": False, " No ": False, "OFF": False}
+        for value, expected in cases.items():
+            env = {} if value is None else {"MODEL_LOADING_ALLOWED": value}
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertIs(server.Config.from_env().allow_loading, expected, repr(value))
+
+    def test_only_the_documented_name_switches_loading(self):
+        others = {name: "false" for name in ("ALLOW_MODEL_LOADING", "ALLOW_LOADING", "OLLAMA_ALLOW_LOADING")}
+        with mock.patch.dict(os.environ, others, clear=True):
+            self.assertIs(server.Config.from_env().allow_loading, True)
+
+    def test_an_unclear_value_stops_the_start_with_its_name(self):
+        for value in ("sometimes", "2", "disabled"):
+            with mock.patch.dict(os.environ, {"MODEL_LOADING_ALLOWED": value}, clear=True):
+                with self.assertRaises(ValueError) as caught:
+                    server.Config.from_env()
+            self.assertIn("MODEL_LOADING_ALLOWED", str(caught.exception))
+
+    def test_switched_off_in_the_environment_the_running_app_refuses_unloaded_models(self):
+        env = {"BACKEND": "ollama", "OLLAMA_URL": self.ollama.url, "MODEL_LOADING_ALLOWED": "false"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            config = server.Config.from_env()
+        app = server.make_server(config, "127.0.0.1", 0)
+        threading.Thread(target=app.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
+        self.addCleanup(app.server_close)
+        self.addCleanup(app.shutdown)
+        base = "http://127.0.0.1:%d" % app.server_address[1]
+        self.assertIs(self.request(base, "/api/models")[1]["backend"]["loading_allowed"], False)
+        status, body = self.request(base, "/api/analyze?mode=ocr&model=small:1b", PNG)
+        self.assertEqual(status, 403, body)
+        self.assertEqual(self.model_requests(), [])
+        self.assertEqual(self.request(base, "/api/analyze?mode=ocr&model=other:2b", PNG)[0], 200)
 
     def test_every_vision_model_is_listed_and_the_default_is_a_loaded_one(self):
         status, body = self.request(self.base, "/api/models")
